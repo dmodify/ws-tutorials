@@ -2,50 +2,57 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-__global__ void global_reduce_kernel(float * d_out, float * d_in)
+// the kernel computes reduce opertation on global memory
+__global__ void global_reduce_kernel(float *d_out, float *d_in)
 {
-    int myId = threadIdx.x + blockDim.x * blockIdx.x;
-    int tid  = threadIdx.x;
+    // mapping threads to data on global memory
+    int global_idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    // do reduction in global mem
+    // iterate log n step; initialize s (stride) = 1; double s at each step  
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
-    {
-        if (tid < s)
+    {   
+        // All threads with IDs < s are active
+        if (threadIdx.x < s)
         {
-            d_in[myId] += d_in[myId + s];
+            //each thread adds value stride elements away to its own value
+            d_in[global_idx] += d_in[global_idx + s];
         }
-        __syncthreads();        // make sure all adds at one stage are done!
+        // barrier to make sure all adds at one stage are done!
+        __syncthreads();        
     }
-
-    // only thread 0 writes result for this block back to global mem
-    if (tid == 0)
+    // only thread 0 writes result for this block back to global memory
+    if (threadIdx.x == 0)
     {
-        d_out[blockIdx.x] = d_in[myId];
+        d_out[blockIdx.x] = d_in[global_idx];
     }
 }
 
-__global__ void shmem_reduce_kernel(float * d_out, const float * d_in)
+// the kernel computes reduce opertation on shared memory
+__global__ void shmem_reduce_kernel(float *d_out, const float *d_in)
 {
-    // sdata is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
-    extern __shared__ float sdata[];
+    // shared data on shared memory allocated at the kernel call: 3rd arg to <<<b, t, shmem>>>
+    __shared__ float sdata[];
 
-    int myId = threadIdx.x + blockDim.x * blockIdx.x;
-    int tid  = threadIdx.x;
+    // mapping threads to data on global memory
+    int global_idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    // load shared mem from global mem
-    sdata[tid] = d_in[myId];
-    __syncthreads();            // make sure entire block is loaded!
+    // load data from global memory into shared memory
+    sdata[threadIdx.x] = d_in[global_idx];
+    // barrier to make sure entire block is loaded!
+    __syncthreads();
 
-    // do reduction in shared mem
+    // iterate log n step; initialize s (stride) = 1; double s at each step 
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
     {
-        if (tid < s)
+        // All threads with IDs < s are active
+        if (threadIdx.x < s)
         {
-            sdata[tid] += sdata[tid + s];
+            //each thread adds value stride elements away to its own value
+            sdata[threadIdx.x] += sdata[threadIdx.x + s];
         }
-        __syncthreads();        // make sure all adds at one stage are done!
+        // barrier to make sure all adds at one stage are done!
+        __syncthreads();        
     }
-
     // only thread 0 writes result for this block back to global mem
     if (tid == 0)
     {
@@ -88,29 +95,10 @@ void reduce(float * d_out, float * d_intermediate, float * d_in,
 
 int main(int argc, char **argv)
 {
-    int deviceCount;
-    cudaGetDeviceCount(&deviceCount);
-    if (deviceCount == 0) {
-        fprintf(stderr, "error: no devices supporting CUDA.\n");
-        exit(EXIT_FAILURE);
-    }
-    int dev = 0;
-    cudaSetDevice(dev);
-
-    cudaDeviceProp devProps;
-    if (cudaGetDeviceProperties(&devProps, dev) == 0)
-    {
-        printf("Using device %d:\n", dev);
-        printf("%s; global mem: %dB; compute v%d.%d; clock: %d kHz\n",
-               devProps.name, (int)devProps.totalGlobalMem, 
-               (int)devProps.major, (int)devProps.minor, 
-               (int)devProps.clockRate);
-    }
-
     const int ARRAY_SIZE = 1 << 20;
     const int ARRAY_BYTES = ARRAY_SIZE * sizeof(float);
 
-    // generate the input array on the host
+    // generate input array on host
     float h_in[ARRAY_SIZE];
     float sum = 0.0f;
     for(int i = 0; i < ARRAY_SIZE; i++) {
@@ -119,15 +107,15 @@ int main(int argc, char **argv)
         sum += h_in[i];
     }
 
-    // declare GPU memory pointers
-    float * d_in, * d_intermediate, * d_out;
+   // declare pointers to device arrays
+    float *d_in, *d_intermediate, *d_out;
 
-    // allocate GPU memory
-    cudaMalloc((void **) &d_in, ARRAY_BYTES);
-    cudaMalloc((void **) &d_intermediate, ARRAY_BYTES); // overallocated
-    cudaMalloc((void **) &d_out, sizeof(float));
+    // allocate memory on the device
+    cudaMalloc((void**) &d_in, ARRAY_BYTES);
+    cudaMalloc((void**) &d_intermediate, ARRAY_BYTES); // overallocated
+    cudaMalloc((void**) &d_out, sizeof(float));
 
-    // transfer the input array to the GPU
+    //copy input data to device memory
     cudaMemcpy(d_in, h_in, ARRAY_BYTES, cudaMemcpyHostToDevice); 
 
     int whichKernel = 0;
@@ -141,7 +129,7 @@ int main(int argc, char **argv)
     // launch the kernel
     switch(whichKernel) {
     case 0:
-        printf("Running global reduce\n");
+        printf("Running reduce operation with global memory\n");
         cudaEventRecord(start, 0);
         for (int i = 0; i < 100; i++)
         {
@@ -150,7 +138,7 @@ int main(int argc, char **argv)
         cudaEventRecord(stop, 0);
         break;
     case 1:
-        printf("Running reduce with shared mem\n");
+        printf("Running reduce operation with shared memory\n");
         cudaEventRecord(start, 0);
         for (int i = 0; i < 100; i++)
         {
@@ -159,7 +147,7 @@ int main(int argc, char **argv)
         cudaEventRecord(stop, 0);
         break;
     default:
-        fprintf(stderr, "error: ran no kernel\n");
+        fprintf(stderr, "Error: ran no kernel\n");
         exit(EXIT_FAILURE);
     }
     cudaEventSynchronize(stop);
@@ -167,13 +155,17 @@ int main(int argc, char **argv)
     cudaEventElapsedTime(&elapsedTime, start, stop);    
     elapsedTime /= 100.0f;      // 100 trials
 
-    // copy back the sum from GPU
+    // copy result to global memory
     float h_out;
     cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost);
 
-    printf("average time elapsed: %f\n", elapsedTime);
+    // check whether the result
+    printf("The sume is %f \n", i, j, h_z[i][j]);
 
-    // free GPU memory allocation
+    //report GPU computing time
+    printf("Average time for the kernel (100 traisl): %f ms\n", elapsedTime);
+
+    //free device memory
     cudaFree(d_in);
     cudaFree(d_intermediate);
     cudaFree(d_out);

@@ -10,7 +10,7 @@ __global__ void matrixAdd(int *d_x, int *d_y, int *d_z, int n)
 	int idx_x = (blockDim.x * blockIdx.x) + threadIdx.x;
 	int idx_y = (blockDim.y * blockIdx.y) + threadIdx.y;
 
-	// Addressing element of 2D array in 1D with thread index in 2D 
+	// addressing element of 2D array in 1D with thread index in 2D 
 	int array_idx = (idx_x * n) + idx_y;
 
 	if (array_idx < n * n) {
@@ -101,7 +101,7 @@ int main()
     //report GPU computing time
     printf ("Time for the kernel: %f ms\n", time);
 
-	//Free device memory
+	//free device memory
 	cudaFree(d_x);
 	cudaFree(d_y);
 	cudaFree(d_z);
