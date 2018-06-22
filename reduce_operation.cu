@@ -31,7 +31,7 @@ __global__ void global_reduce_kernel(float *d_out, float *d_in)
 __global__ void shmem_reduce_kernel(float *d_out, const float *d_in)
 {
     // shared data on shared memory allocated at the kernel call: 3rd arg to <<<b, t, shmem>>>
-    __shared__ float sdata[];
+    extern __shared__ float sdata[];
 
     // mapping threads to data on global memory
     int global_idx = threadIdx.x + blockDim.x * blockIdx.x;
@@ -54,7 +54,7 @@ __global__ void shmem_reduce_kernel(float *d_out, const float *d_in)
         __syncthreads();        
     }
     // only thread 0 writes result for this block back to global mem
-    if (tid == 0)
+    if (threadIdx.x == 0)
     {
         d_out[blockIdx.x] = sdata[0];
     }
@@ -160,10 +160,10 @@ int main(int argc, char **argv)
     cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost);
 
     // check whether the result
-    printf("The sume is %f \n", i, j, h_z[i][j]);
+    printf("The sum is %f \n", h_out);
 
     //report GPU computing time
-    printf("Average time for the kernel (100 traisl): %f ms\n", elapsedTime);
+    printf("Average time for the kernel: %f ms\n", elapsedTime);
 
     //free device memory
     cudaFree(d_in);
