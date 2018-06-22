@@ -1,3 +1,4 @@
+// Sample codes for tutorial 2
 #include <stdlib.h>
 #include <stdio.h>
 

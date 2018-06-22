@@ -1,3 +1,4 @@
+// Sample codes for tutorial 0
 #include <stdio.h>
 
 //Devices with compute capability 2.x or 

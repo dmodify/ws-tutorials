@@ -1,4 +1,4 @@
-// Sample codes for tutorial 2
+// Sample codes for tutorial 1
 #include <stdlib.h>
 #include <stdio.h>
 
